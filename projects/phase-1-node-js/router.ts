@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import type { Handler, Route, Request, Middleware } from "./lib/types.ts";
+import type { Handler, Route, Request } from "./lib/types.ts";
 import {
   CAPTURE_GROUP_REGEX,
   DEFAULT_JSON_HEADERS,
