@@ -1,5 +1,6 @@
-import { DEFAULT_JSON_HEADERS, PROTECTED_ROUTES } from "../lib/constants.ts";
+import { PROTECTED_ROUTES } from "../lib/constants.ts";
 import type { Middleware } from "../lib/types.ts";
+import { sendResponse } from "../lib/utils/sendResponse.ts";
 
 export const authMiddleware: Middleware = async (req, res, next) => {
   const isProtectedRoute =
@@ -11,12 +12,9 @@ export const authMiddleware: Middleware = async (req, res, next) => {
   const isAuthTokenValid = !!authToken && authToken.startsWith("Bearer");
 
   if (isProtectedRoute && !isAuthTokenValid) {
-    res.writeHead(401, DEFAULT_JSON_HEADERS);
-    res.end(
-      JSON.stringify({
-        message: "Unauthorized: Missing token",
-      }),
-    );
+    sendResponse(res, 401, {
+      message: "Unauthorized: Missing token",
+    });
     return;
   }
 
