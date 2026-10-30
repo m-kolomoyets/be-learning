@@ -1,5 +1,5 @@
 import type { ServerResponse } from "http";
-import { PATH_PARAM_PATTERN, CAPTURE_GROUP_REGEX, DEFAULT_JSON_HEADERS } from "./constants.ts";
+import { PATH_PARAM_PATTERN, CAPTURE_GROUP_REGEX } from "./constants.ts";
 import type { Handler, Route, Request } from "./types.ts";
 import { sendResponse } from "./utils/sendResponse.ts";
 
