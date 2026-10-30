@@ -5,6 +5,7 @@ import {
   DEFAULT_JSON_HEADERS,
   PATH_PARAM_PATTERN,
 } from "./lib/constants.ts";
+import { sendResponse } from "./lib/utils/sendResponse.ts";
 
 export class Router {
   private routes: Route[] = [];
@@ -130,53 +131,37 @@ export class Router {
     try {
       await matchedRoute.handler(req, res);
     } catch (error) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Internal Server Error" }));
+      sendResponse(res, 500, { error: "Internal Server Error" });
     }
   }
 }
 
+// === ROUTER ===
+
 const router = new Router();
 
 router.get("/", (req, res) => {
-  res.writeHead(200, DEFAULT_JSON_HEADERS);
-  res.end(
-    JSON.stringify({
-      message: "This is a root route",
-    }),
-  );
+  sendResponse(res, 200, { message: "This is a root route" });
 });
 
 router.get("/hello", (req, res) => {
-  res.writeHead(200, DEFAULT_JSON_HEADERS);
-  res.end(
-    JSON.stringify({
-      message: "This is a /hello route",
-      searchParams: req.searchParams,
-    }),
-  );
+  sendResponse(res, 200, { message: "This is a /hello route" });
 });
 
 router.get("/hello/:name", (req, res) => {
-  res.writeHead(200, DEFAULT_JSON_HEADERS);
-  res.end(
-    JSON.stringify({
-      message: "This is a /hello name route",
-      params: req.params,
-      searchParams: req.searchParams,
-    }),
-  );
+  sendResponse(res, 200, {
+    message: `Hello, ${req.params?.name ?? "user"}!. This is a /hello with name route`,
+    params: req.params,
+    searchParams: req.searchParams,
+  });
 });
 
 router.get("/protected", (req, res) => {
-  res.writeHead(200, DEFAULT_JSON_HEADERS);
-  res.end(
-    JSON.stringify({
-      message:
-        "This is a /protected route. If you see this, you have the AuthToken in headers",
-      searchParams: req.searchParams,
-    }),
-  );
+  sendResponse(res, 200, {
+    message:
+      "This is a /protected route. If you see this, you have the AuthToken in headers",
+    searchParams: req.searchParams,
+  });
 });
 
 export const appHandler = (req: Request, res: ServerResponse) => {

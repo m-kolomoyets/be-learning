@@ -1,6 +1,5 @@
-import { createServer, ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import { appHandler } from "./router.ts";
-import type { Middleware, Request } from "./lib/types.ts";
 import { loggerMiddleware } from "./middlewares/loggerMiddleware.ts";
 import { compose } from "./lib/utils/compose.ts";
 import { authMiddleware } from "./middlewares/authMiddleware.ts";
