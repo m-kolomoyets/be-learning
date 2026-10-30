@@ -3,7 +3,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 export type Request = IncomingMessage & {
   params?: Record<string, string>;
   searchParams?: Record<string, string>;
-}
+};
+
+export type Middleware = (
+  req: Request,
+  res: ServerResponse,
+  next: () => Promise<void> | void,
+) => Promise<void> | void;
 
 export type Handler = (
   req: Request,

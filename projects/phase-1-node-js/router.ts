@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import type { Handler, Route, Request } from "./lib/types.ts";
+import type { Handler, Route, Request, Middleware } from "./lib/types.ts";
 import {
   CAPTURE_GROUP_REGEX,
   DEFAULT_JSON_HEADERS,
@@ -113,7 +113,7 @@ export class Router {
   // === ROUTE EXECUTOR
 
   async handle(req: Request, res: ServerResponse) {
-    const {url, pathname, method} = this.parseRequestUrl(req);
+    const { url, pathname, method } = this.parseRequestUrl(req);
 
     const matchedRoute = this.matchRoute(method, pathname);
 
@@ -127,7 +127,12 @@ export class Router {
     const searchParams = this.parseSearchParams(url);
     req.searchParams = searchParams;
 
-    await matchedRoute.handler(req, res);
+    try {
+      await matchedRoute.handler(req, res);
+    } catch (error) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal Server Error" }));
+    }
   }
 }
 
@@ -147,7 +152,7 @@ router.get("/hello", (req, res) => {
   res.end(
     JSON.stringify({
       message: "This is a /hello route",
-      searchParams: req.searchParams
+      searchParams: req.searchParams,
     }),
   );
 });
@@ -158,7 +163,18 @@ router.get("/hello/:name", (req, res) => {
     JSON.stringify({
       message: "This is a /hello name route",
       params: req.params,
-      searchParams: req.searchParams
+      searchParams: req.searchParams,
+    }),
+  );
+});
+
+router.get("/protected", (req, res) => {
+  res.writeHead(200, DEFAULT_JSON_HEADERS);
+  res.end(
+    JSON.stringify({
+      message:
+        "This is a /protected route. If you see this, you have the AuthToken in headers",
+      searchParams: req.searchParams,
     }),
   );
 });
