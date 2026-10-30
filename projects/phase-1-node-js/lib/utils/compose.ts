@@ -5,7 +5,7 @@ export const compose = (middlewares: Middleware[]) => {
   return (req: Request, res: ServerResponse) => {
     let index = -1;
 
-    const dispatch = (i: number) => {
+    const dispatch = (i: number): Promise<void> => {
       if (i <= index) {
         return Promise.reject(new Error("next() called multiple times"));
       }
@@ -20,7 +20,7 @@ export const compose = (middlewares: Middleware[]) => {
       try {
         return Promise.resolve(
           currentMiddleware(req, res, () => {
-            dispatch(i + 1);
+            return dispatch(i + 1);
           }),
         );
       } catch (err) {
