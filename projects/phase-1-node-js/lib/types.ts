@@ -8,6 +8,7 @@ export type Handler = (
 // TODO: handle /:param/.. patterns
 export type Route = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  path: string;
+  pattern: RegExp;
+  pathParams: string[];
   handler: Handler;
 };

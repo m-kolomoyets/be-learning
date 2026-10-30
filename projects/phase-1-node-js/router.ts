@@ -1,18 +1,20 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Handler, Route } from "./lib/types.ts";
-import { DEFAULT_JSON_HEADERS } from "./lib/constants.ts";
+import { DEFAULT_JSON_HEADERS, PATH_PARAM_PATTERN } from "./lib/constants.ts";
 import { parseRequestUrl } from "./lib/utils/parseRequestUrl.ts";
-
+import { convertPathToPattern } from "./lib/utils/convertPathToPattern.1.ts";
 
 export class Router {
   private routes: Route[] = [];
 
   // TODO: Maybe additional checks and validations to add here
   private addRoute(method: Route["method"], path: string, handler: Handler) {
+    const { pathParams, regexPattern } = convertPathToPattern(path);
+
     this.routes.push({
       method,
-      path,
-      params: [],
+      pattern: new RegExp(`^${regexPattern}$`),
+      pathParams,
       handler,
     });
   }
@@ -37,11 +39,10 @@ export class Router {
     this.addRoute("DELETE", path, handler);
   }
 
-  // TODO: add params matcher
   matchRoute(method: Route["method"], path: string) {
     return this.routes.find((route) => {
       const isMethodMatch = route.method === method;
-      const isPathnameMatch = route.path === path;
+      const isPathnameMatch = !!path.match(route.pattern);
 
       return isMethodMatch && isPathnameMatch;
     });
@@ -87,6 +88,15 @@ router.get("/hello", (req, res) => {
   res.end(
     JSON.stringify({
       message: "This is a /hello route",
+    }),
+  );
+});
+
+router.get("/hello/:name", (req, res) => {
+  res.writeHead(200, DEFAULT_JSON_HEADERS);
+  res.end(
+    JSON.stringify({
+      message: "This is a /hello name route",
     }),
   );
 });
