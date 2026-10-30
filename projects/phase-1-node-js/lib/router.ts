@@ -41,12 +41,9 @@ export class Router {
   }
 
   private notFound(res: ServerResponse) {
-    res.writeHead(404, DEFAULT_JSON_HEADERS);
-    res.end(
-      JSON.stringify({
-        message: "Invalid route, seems it does not exist",
-      }),
-    );
+    sendResponse(res, 404, {
+      message: "Invalid route, seems it does not exist",
+    })
   }
 
   private parseRequestUrl(req: Request) {
