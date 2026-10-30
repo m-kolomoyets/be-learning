@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 export type Request = IncomingMessage & {
   params?: Record<string, string>;
+  searchParams?: Record<string, string>;
 }
 
 export type Handler = (
