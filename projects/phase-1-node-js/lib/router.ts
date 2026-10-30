@@ -1,10 +1,12 @@
 import type { ServerResponse } from "http";
 import { PATH_PARAM_PATTERN, CAPTURE_GROUP_REGEX } from "./constants.ts";
-import type { Handler, Route, Request } from "./types.ts";
+import type { Handler, Route, Request, Middleware } from "./types.ts";
 import { sendResponse } from "./utils/sendResponse.ts";
+import { compose } from "./utils/compose.ts";
 
 export class Router {
   private routes: Route[] = [];
+  private middlewares: Middleware[] = [];
 
   private convertPathToPattern(path: string) {
     const pathParams: string[] = [];
@@ -43,7 +45,7 @@ export class Router {
   private notFound(res: ServerResponse) {
     sendResponse(res, 404, {
       message: "Invalid route, seems it does not exist",
-    })
+    });
   }
 
   private parseRequestUrl(req: Request) {
@@ -82,26 +84,30 @@ export class Router {
     return Object.fromEntries(url.searchParams.entries());
   }
 
+  use(...middlewares: Middleware[]) {
+    this.middlewares.push(...middlewares);
+  }
+
   // === METHODS ACCESSORS ===
 
-  get(path: string, handler: Handler) {
-    this.addRoute("GET", path, handler);
+  get(path: string, ...fns: [...Middleware[], Handler]) {
+    this.addRoute("GET", path, compose(fns));
   }
 
-  post(path: string, handler: Handler) {
-    this.addRoute("POST", path, handler);
+  post(path: string, ...fns: [...Middleware[], Handler]) {
+    this.addRoute("POST", path, compose(fns));
   }
 
-  put(path: string, handler: Handler) {
-    this.addRoute("PUT", path, handler);
+  put(path: string, ...fns: [...Middleware[], Handler]) {
+    this.addRoute("PUT", path, compose(fns));
   }
 
-  patch(path: string, handler: Handler) {
-    this.addRoute("PATCH", path, handler);
+  patch(path: string, ...fns: [...Middleware[], Handler]) {
+    this.addRoute("PATCH", path, compose(fns));
   }
 
-  delete(path: string, handler: Handler) {
-    this.addRoute("DELETE", path, handler);
+  delete(path: string, ...fns: [...Middleware[], Handler]) {
+    this.addRoute("DELETE", path, compose(fns));
   }
 
   // === ROUTE EXECUTOR
@@ -122,9 +128,18 @@ export class Router {
     req.searchParams = searchParams;
 
     try {
-      await matchedRoute.handler(req, res);
-    } catch (error) {
-      sendResponse(res, 500, { error: "Internal Server Error" });
+      const composedHandler = compose([
+        ...this.middlewares,
+        matchedRoute.handler,
+      ]);
+
+      await composedHandler(req, res);
+    } catch (err) {
+      const error = err as Error;
+
+      sendResponse(res, 500, {
+        error: `Internal Server Error: ${error.message}`,
+      });
     }
   }
 }
