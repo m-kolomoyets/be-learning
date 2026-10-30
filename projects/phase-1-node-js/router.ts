@@ -1,9 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Handler, Route } from "./lib/types.ts";
+import { DEFAULT_JSON_HEADERS } from "./lib/constants.ts";
+import { parseRequestUrl } from "./lib/utils/parseRequestUrl.ts";
 
-
-
-const DEFAULT_JSON_HEADERS = { "Content-Type": "application/json" };
 
 export class Router {
   private routes: Route[] = [];
@@ -13,6 +12,7 @@ export class Router {
     this.routes.push({
       method,
       path,
+      params: [],
       handler,
     });
   }
@@ -57,10 +57,7 @@ export class Router {
   }
 
   async handle(req: IncomingMessage, res: ServerResponse) {
-    const parsedUrl = new URL(
-      req.url || "/",
-      `http://${req.headers.host || "localhost"}`,
-    );
+    const parsedUrl = parseRequestUrl(req);
     const pathname = parsedUrl.pathname;
     const method = (req.method ?? "GET") as Route["method"];
 
