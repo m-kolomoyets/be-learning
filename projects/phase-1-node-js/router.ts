@@ -1,8 +1,8 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Handler, Route } from "./lib/types.ts";
-import { DEFAULT_JSON_HEADERS, PATH_PARAM_PATTERN } from "./lib/constants.ts";
+import type { ServerResponse } from "node:http";
+import type { Handler, Route, Request } from "./lib/types.ts";
+import { DEFAULT_JSON_HEADERS } from "./lib/constants.ts";
 import { parseRequestUrl } from "./lib/utils/parseRequestUrl.ts";
-import { convertPathToPattern } from "./lib/utils/convertPathToPattern.1.ts";
+import { convertPathToPattern } from "./lib/utils/convertPathToPattern.ts";
 
 export class Router {
   private routes: Route[] = [];
@@ -57,7 +57,23 @@ export class Router {
     );
   }
 
-  async handle(req: IncomingMessage, res: ServerResponse) {
+  private parsePathParams(route: Route, pathname: string) {
+    const params: Record<string, string> = {};
+
+    const paramsMatches = pathname.match(route.pattern);
+
+    if (!paramsMatches) {
+      return params;
+    }
+
+    route.pathParams.forEach((param, index) => {
+      params[param] = paramsMatches.at(index + 1)!;
+    });
+
+    return params;
+  }
+
+  async handle(req: Request, res: ServerResponse) {
     const parsedUrl = parseRequestUrl(req);
     const pathname = parsedUrl.pathname;
     const method = (req.method ?? "GET") as Route["method"];
@@ -65,10 +81,14 @@ export class Router {
     const matchedRoute = this.matchRoute(method, pathname);
 
     if (!matchedRoute) {
-      this.notFound(res);
-    } else {
-      await matchedRoute.handler(req, res);
+      return this.notFound(res);
     }
+
+    const pathParams = this.parsePathParams(matchedRoute, pathname);
+
+    req.params = pathParams;
+
+    await matchedRoute.handler(req, res);
   }
 }
 
@@ -97,10 +117,11 @@ router.get("/hello/:name", (req, res) => {
   res.end(
     JSON.stringify({
       message: "This is a /hello name route",
+      params: req.params
     }),
   );
 });
 
-export const appHandler = (req: IncomingMessage, res: ServerResponse) => {
+export const appHandler = (req: Request, res: ServerResponse) => {
   router.handle(req, res);
 };

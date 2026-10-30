@@ -1,11 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+export type Request = IncomingMessage & {
+  params?: Record<string, string>;
+}
+
 export type Handler = (
-  req: IncomingMessage,
+  req: Request,
   res: ServerResponse,
 ) => Promise<void> | void;
 
-// TODO: handle /:param/.. patterns
 export type Route = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   pattern: RegExp;
