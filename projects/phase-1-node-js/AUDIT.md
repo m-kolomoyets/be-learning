@@ -1,318 +1,268 @@
 # Phase 1 — Node.js mini-project: Mentor Audit
 
-**Date:** 2026-10-30  
-**Scope:** `projects/phase-1-node-js/` (`app.ts`, `router.ts`, `middlewares/*`, `lib/*`, `app.js`)  
+**Revision:** 2 (2026-10-30). Items fixed since revision 1 have been removed.  
+**Scope:** `projects/phase-1-node-js/` (`app.ts`, `lib/*`, `middlewares/*`, `routes/*`, `handlers/*`, `app.js`)  
 **Runtime checked:** Node v26.13.0, native TS type stripping (`node app.ts`)
 
-Every finding marked **[verified]** was reproduced by running the code (curl against the server or a small script against `compose`).
+Every finding marked **[verified]** was reproduced against the running server or in an isolated script.
 
 ---
 
 ## TL;DR
 
-A good first framework-less server: you built your own router with path params, a Koa-style `compose`, and a single response helper. That's the right exercise, and the code is clean and readable.
+Good progress. The project structure (`lib` / `routes` / `handlers` / `middlewares`), the per-route middleware chain, and the global `router.use()` are now the right shape.
 
-There are **three major issues** to fix before building more on top of it:
+Open major issues:
 
-1. **`compose` is broken.** `next()` doesn't return the downstream promise, so `await next()` doesn't wait, and errors downstream become unhandled rejections. That can crash the process. **[verified]**
-2. **Auth can be bypassed.** The auth middleware checks raw `req.url`, but the router matches the *normalized* `URL.pathname`. `GET /./protected` or `GET /x/../protected` reaches the protected handler with no token. **[verified]**
-3. **Route protection lives apart from the routes.** `PROTECTED_ROUTES` is a string-prefix list in `constants.ts` that runs before routing. That design causes issue 2, and it's fail-open: a new route is public unless you remember to add it to the list.
+1. **One malformed request crashes the server.** URL parsing runs outside any `try`, and `app.ts` doesn't catch the promise from `router.handle`. **[verified]**
+2. **Auth can still be bypassed.** `authMiddleware` is now attached per route, but it still checks `PROTECTED_ROUTES` against the raw `req.url`. **[verified]**
+3. **The token check accepts any value starting with `Bearer`.**
+4. **Internal error messages are sent to clients.**
 
 ---
 
 ## ✅ What's good
 
-- **Clear separation of concerns for a first pass.** Types live in `lib/types.ts`, constants in `lib/constants.ts`, helpers in `lib/utils`, and middlewares get their own folder.
-- **Router design is the right mental model.** You compile path → `RegExp` once at registration (not per request), collect param names, and expose `get/post/put/patch/delete`. Express-style routers work the same way internally.
-- **Koa-style `compose` with a `next()`-called-twice guard.** Knowing to add the `i <= index` guard shows you understood the onion model.
-- **`sendResponse` utility.** One place sets the JSON headers and serializes the body. Good refactor (the recent commits).
-- **Using `new URL(req.url, base)`** instead of hand-splitting on `?`. Correct and safe.
-- **Handler errors are caught** in `Router.handle` and turned into a 500 instead of crashing.
-- **Strict tsconfig** (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `erasableSyntaxOnly`). These are excellent defaults, and they let you run `.ts` directly on Node.
-- **Binding to `127.0.0.1`** rather than `0.0.0.0` is a safe default for local dev.
+- **Clear project layout.** Router class in `lib/router.ts`, route table in `routes/index.ts`, one file per handler group, one file per middleware.
+- **Per-route middleware:** `router.get("/protected", authMiddleware, protectedHandler)`. Protection is declared next to the route and can differ by HTTP method. This is the Express/Koa-router model.
+- **Global middleware via `router.use(...)`**, with the error middleware placed first so it wraps everything after it.
+- **`compose` now propagates `next()`** (`return dispatch(i + 1)`). `await next()` really waits, and downstream errors reach upstream `try/catch`.
+- **The logger uses `res.on("finish")`** and measures duration. That's the robust pattern.
+- **`errorMiddleware` checks `res.headersSent`** and destroys the socket when it's too late to send a 500. That's the correct fallback.
+- **Router internals:** paths compile to a `RegExp` once at registration, param names are collected, and `notFound` reuses `sendResponse`.
+- **Strict tsconfig**, `127.0.0.1` binding, and `dist/` in `.gitignore`.
 
 ---
 
 ## 🔴 Major issues
 
-### M1. `compose` doesn't propagate the `next()` promise [verified]
+### M1. One malformed request crashes the whole server [verified]
 
-`lib/utils/compose.ts:22-24`
+`lib/router.ts:51-55`, `lib/router.ts:115-122`, `app.ts:8-10`
 
 ```ts
-currentMiddleware(req, res, () => {
-  dispatch(i + 1);   // ← result discarded; returns undefined
-}),
+const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 ```
 
-Effects:
+`new URL()` throws `ERR_INVALID_URL` on a bad `Host` header. For example:
 
-- `await next()` resolves immediately, *before* downstream middlewares or the handler finish. Any "after" logic (timing, response logging, transactions, cleanup) runs too early.
-  Test result: `a:before -> a:after`. The handler never ran inside the `await`.
-- A throw or reject downstream is **not** propagated to the caller. It becomes an `unhandledRejection`, and on modern Node that **crashes the process**.
-  Test result: `UNHANDLED: boom`.
-- The "`next() called multiple times`" rejection is swallowed the same way, so the guard never actually reports anything.
-- `app.ts` passes `compose(...)` to `createServer`, which ignores the returned promise. Even a correct `compose` needs a top-level `.catch`.
-- `appHandler` (`router.ts:167`) calls `router.handle(req, res)` without `return`/`await`. That breaks the chain too.
-
-**Fix:**
-
-```ts
-export const compose = (middlewares: Middleware[]) => {
-  return (req: Request, res: ServerResponse): Promise<void> => {
-    let index = -1;
-
-    const dispatch = async (i: number): Promise<void> => {
-      if (i <= index) throw new Error("next() called multiple times");
-      index = i;
-      const mw = middlewares[i];
-      if (!mw) return;
-      await mw(req, res, () => dispatch(i + 1)); // ← return the promise
-    };
-
-    return dispatch(0);
-  };
-};
+```
+printf 'GET / HTTP/1.1\r\nHost: a b\r\nConnection: close\r\n\r\n' | nc 127.0.0.1 3000
 ```
 
-```ts
-// router.ts
-export const appHandler = (req: Request, res: ServerResponse) =>
-  router.handle(req, res); // return it
+The throw happens in `handle()` **before** the `try` block and before `errorMiddleware` runs. `app.ts` returns the promise to `createServer`, which ignores it. The result is an unhandled rejection, and **the process exits**. After this request the dev server stopped responding.
 
-// app.ts
-const handler = compose([errorMiddleware, loggerMiddleware, appHandler]);
-createServer((req, res) => {
-  handler(req, res).catch((err) => {
-    console.error(err);
+This is a denial-of-service bug: any client can take the server down with one request.
+
+**Fix, in two layers (both are needed):**
+
+```ts
+// 1. app.ts — last-resort safety net; never let a request kill the process
+const server = createServer((req, res) => {
+  router.handle(req, res).catch((error) => {
+    console.error("Unhandled request error", error);
     if (!res.headersSent) sendResponse(res, 500, { error: "Internal Server Error" });
     else res.destroy();
   });
 });
 ```
 
-Also add an **error-handling middleware** as the first item in the chain (`try { await next() } catch {...}`). Then error handling lives in one place instead of only inside the router.
+```ts
+// 2. lib/router.ts — don't trust the Host header; it isn't needed for path parsing
+const url = new URL(req.url ?? "/", "http://localhost");
+```
+
+Better still, see A1 below: run everything, including URL parsing and route matching, *inside* the composed chain so `errorMiddleware` covers it.
 
 ---
 
-### M2. Auth bypass via path normalization mismatch [verified]
+### M2. Auth bypass via path normalization is still open [verified]
 
-`middlewares/authMiddleware.ts:6-9` vs `router.ts:56-62`
+`middlewares/authMiddleware.ts:6-9`, `lib/constants.ts:6`
 
-Auth checks `req.url.startsWith("/protected")` on the **raw** URL. The router matches on `new URL(...).pathname`, which **normalizes dot-segments**:
+`GET /./protected` (sent with `curl --path-as-is`) and `GET /x/../protected` return **200 with no token**.
 
-| Request (sent with `curl --path-as-is`) | Auth sees | Router matches | Result |
-|---|---|---|---|
-| `GET /protected` | `/protected` ✔ protected | `/protected` | 401 ✅ |
-| `GET /./protected` | not a prefix match → **public** | `/protected` | **200, no token ❌** |
-| `GET /x/../protected` | not a prefix match → **public** | `/protected` | **200, no token ❌** |
-| `GET /protected-admin` | prefix match → protected | 404 | 401 (over-matching, leaks nothing but wrong) |
+The router matches the normalized `URL.pathname` (`/protected`). `authMiddleware` still compares the **raw** `req.url` against `PROTECTED_ROUTES`. `"/./protected".startsWith("/protected")` is false, so the middleware decides the route isn't protected and calls `next()`.
 
-This is a classic bug class: two components parse the same input differently. Security checks must run on **the same normalized value the router uses**. Ideally they attach to the **matched route**, not to a string.
+Now that auth is attached per route, the prefix check is not just redundant, it's the bug. **A middleware attached to a route doesn't need to ask whether the route is protected. Being attached already answers that.**
 
-**Fix:** see the "Route protection" section below. Short-term patch: parse once (e.g. in a first middleware that stores `req.pathname`), then compare whole path segments (`pathname === r || pathname.startsWith(r + "/")`).
-
----
-
-### M3. Token "validation" accepts anything starting with `Bearer` [verified]
-
-`middlewares/authMiddleware.ts:11-12`
+**Fix:** delete the prefix check and `PROTECTED_ROUTES`:
 
 ```ts
-const isAuthTokenValid = !!authToken && authToken.startsWith("Bearer");
+export const authMiddleware: Middleware = async (req, res, next) => {
+  const [scheme, token] = req.headers.authorization?.split(" ") ?? [];
+
+  if (scheme !== "Bearer" || !token) {
+    sendResponse(
+      res,
+      401,
+      { message: "Unauthorized: Missing token" },
+      { "WWW-Authenticate": "Bearer" },
+    );
+    return;
+  }
+
+  await next();
+};
 ```
+
+This snippet also fixes M3.
+
+**General lesson:** run security checks on the same normalized value the router uses. Ideally, attach them to the matched route rather than to a string.
+
+---
+
+### M3. Token check accepts any value starting with `Bearer` [verified]
+
+`middlewares/authMiddleware.ts:11-12`
 
 `Authorization: Bearerxyz` and `Authorization: Bearer` (no token) both pass. Faking verification is fine for a learning project, but make the stub **shaped like a real check** so you can swap it later:
 
 ```ts
-const header = req.headers.authorization;           // already typed string | undefined
-const [scheme, token] = header?.split(" ") ?? [];
-if (scheme !== "Bearer" || !token) return unauthorized(res);
-
-const user = await verifyToken(token);              // stub now, JWT/session later
-if (!user) return unauthorized(res);
-req.user = user;                                    // downstream handlers know *who*
+const user = await verifyToken(token); // stub now, JWT/session later
+if (!user) return unauthorized(res);   // "invalid" vs "missing" token
+req.user = user;                       // downstream handlers know *who*
 ```
 
-Also: send `WWW-Authenticate: Bearer` with 401 responses (RFC 6750), and use different messages for "missing" vs "invalid" tokens.
+Also:
+- Send `WWW-Authenticate: Bearer` with 401 responses (RFC 6750).
+- Remove the `as string` cast on `req.headers["authorization"]`. Node already types it as `string | undefined`, and the cast hides the `undefined`.
 
 ---
 
-## 🟠 Architectural review: middleware, auth, and route protection
+### M4. Internal error messages are sent to clients
 
-### Current shape
-
-```
-createServer
-  └─ compose([logger, auth, appHandler])
-                 │       └─ router.handle → match → handler
-                 └─ checks PROTECTED_ROUTES (string prefixes) on raw req.url
-```
-
-Problems with this shape:
-
-1. **Global middleware doesn't know which route matched.** Auth runs before routing, so it has to re-guess the route from a string. That causes the duplication and the bypass in M2.
-2. **Fail-open.** A new protected route is public until someone edits `constants.ts`. Security defaults should be fail-closed, or at least declared *next to* the route.
-3. **Two sources of truth** for route paths: `router.get("/protected", …)` and `PROTECTED_ROUTES = ["/protected"]`.
-4. **Method-blind.** You can't protect `POST /posts` while leaving `GET /posts` public.
-
-### Recommended: per-route middleware (Express/Koa-router style)
-
-Let the router accept a middleware chain per route and reuse your `compose`:
+`middlewares/errorMiddleware.ts:13`, `lib/router.ts:140-142`
 
 ```ts
-// types.ts
-export type Route = {
-  method: Method;
-  pattern: RegExp;
-  pathParams: string[];
-  chain: Handler; // composed middlewares + handler
-};
+sendResponse(res, 500, { error: `Internal Server Error: ${error.message}` });
+```
 
-// router.ts
-get(path: string, ...fns: [...Middleware[], Handler]) {
-  this.addRoute("GET", path, compose(fns as Middleware[]));
+`error.message` from internal code can contain SQL fragments, file paths, hostnames, or stack-derived details. Never send it to the client on a 5xx.
+
+- Log the full error server-side: `console.error(err)`, which includes the stack (currently only `.message` is logged).
+- Send a generic body to the client: `{ error: "Internal Server Error" }`.
+- For *expected* errors, use an `HttpError` class whose message is meant to be public:
+
+```ts
+export class HttpError extends Error {
+  constructor(public status: number, message: string, public expose = status < 500) {
+    super(message);
+  }
+}
+// errorMiddleware:
+const status = err instanceof HttpError ? err.status : 500;
+const message = err instanceof HttpError && err.expose ? err.message : "Internal Server Error";
+```
+
+> `erasableSyntaxOnly` forbids parameter properties (`public status` in the constructor), so declare the fields explicitly instead.
+
+Also, `err as Error` is unsafe: anything can be thrown (`throw "x"`). Use `err instanceof Error ? err : new Error(String(err))`.
+
+---
+
+## 🟠 Architecture
+
+### A1. Global middleware runs only after a route has matched
+
+`lib/router.ts:115-136`
+
+`handle()` parses the URL and matches the route first, then builds the chain `[...this.middlewares, route.handler]`. As a result:
+
+- **404s are never logged**, and `errorMiddleware` never sees them.
+- **Errors in parsing or matching** (see M1) aren't covered by `errorMiddleware`.
+- Global middleware like CORS preflight, request ID, or rate limiting can't run on unmatched paths.
+- Two layers both catch errors: `errorMiddleware` and the `try/catch` in `handle()`. The router's catch also lacks a `headersSent` check, so it can throw `ERR_HTTP_HEADERS_SENT`.
+
+**Recommended shape:** make routing the *last middleware* of the global chain.
+
+```ts
+async handle(req: Request, res: ServerResponse) {
+  const chain = compose([...this.middlewares, this.dispatchRoute]);
+  await chain(req, res);
 }
 
-// routes.ts
-router.get("/hello/:name", helloHandler);
-router.get("/protected", requireAuth, protectedHandler);
-router.delete("/posts/:id", requireAuth, requireRole("admin"), deletePost);
+private dispatchRoute: Middleware = async (req, res) => {
+  const { url, pathname, method } = this.parseRequestUrl(req);
+  const matched = this.matchRoute(method, pathname);
+  if (!matched) return this.notFound(res);
+
+  req.params = this.parsePathParams(matched, pathname);
+  req.searchParams = this.parseSearchParams(url);
+  await matched.handler(req, res);
+};
 ```
 
-Benefits: protection sits next to the route, runs after normalization and matching, and can be per-method. Composable guards (`requireAuth`, `requireRole`, `validate(schema)`) are what you'll meet in Express, Fastify (`preHandler`), NestJS (Guards), and Hono.
+`errorMiddleware` then becomes the single place that handles errors, so you can remove the `try/catch` from `handle()`.
 
-### Alternative: route groups / sub-routers
+> Note the arrow-function field `dispatchRoute = async () => {}`. It keeps `this` bound when passed around, which is the same issue as the earlier `createServer(router.handle)` error.
 
-When many routes share protection:
+### A2. The chain is re-composed on every request
 
-```ts
-const api = new Router({ prefix: "/api" });
-const admin = new Router({ prefix: "/admin", middlewares: [requireAuth, requireRole("admin")] });
-router.use(api);
-router.use(admin);
-```
+`lib/router.ts:131-134`
 
-### Alternative: route metadata (declarative)
+`compose([...this.middlewares, matchedRoute.handler])` allocates a new array and closure on every request. It's cheap but unnecessary. Compose once, either lazily on the first `handle()` call or invalidated in `use()`. If you adopt A1, the global chain doesn't depend on the route at all, so it can be composed once.
 
-```ts
-router.get("/protected", handler, { auth: true });
-// in handle(): if (route.meta.auth) await requireAuth(...)
-```
+### A3. Split `authenticate` from `authorize`
 
-Simpler to start with but less flexible. Per-route middleware is the recommended path.
+When you add real tokens:
 
-### What stays global
+- **authenticate** (global, optional): "who are you?" Parse the token if present and set `req.user`. It never rejects.
+- **requireAuth / requireRole(role)** (per route): "are you allowed?" Respond 401/403.
 
-Things that apply to *every* request and don't depend on the route stay in the global `compose`: error handler, request logger, request ID, CORS, body-size limits. A good order:
-
-```
-errorHandler → requestId → logger → (cors) → router.handle → [per-route: auth → validate → handler]
-```
-
-### `authenticate` vs `authorize`
-
-Split them:
-
-- **authenticate** (optionally global): "who are you?" Parse the token if present and set `req.user`. It never rejects on its own.
-- **authorize / requireAuth** (per-route): "are you allowed?" Reject with 401/403.
-
-This also supports routes that are public but personalized when logged in.
+This supports routes that are public but personalized when the user is logged in.
 
 ---
 
 ## 🟡 Minor fixes / nice to have
 
-### Router (`router.ts`)
+### Logger (`middlewares/loggerMiddleware.ts`)
 
-- **Split the file.** `router.ts` holds the `Router` class, the route definitions, and `appHandler`. Suggested layout: `lib/router.ts` (class), `routes/index.ts` (definitions), `handlers/*.ts` (handler functions).
+- **Bug: the status code is captured too early.** `routeMessage` is built at the start, when `res.statusCode` is still the default `200`, so the `finish` log always shows `200`, even for 401/404/500. Read `res.statusCode` inside the `finish` callback.
+- Also log `res.on("close")` when `!res.writableFinished`, to catch aborted requests.
+
+### Router (`lib/router.ts`)
+
 - **Path params aren't URL-decoded** [verified]. `/hello/J%C3%B6rg` returns `"J%C3%B6rg"`. Use `decodeURIComponent` in `parsePathParams`, wrapped in `try/catch`, and send 400 on malformed `%`.
-- **Regex special characters in route paths aren't escaped.** `router.get("/file.json")` would match `/fileXjson`. Escape the literal parts (`str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")`) before substituting params.
-- **Regex runs twice per request** (`matchRoute` then `parsePathParams`). Have `matchRoute` return `{ route, match }` and reuse the match.
+- **Regex special characters in route paths aren't escaped.** `router.get("/file.json")` would match `/fileXjson`. Escape the literal parts (`s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")`) before substituting params.
+- **The regex runs twice per request** (`matchRoute` then `parsePathParams`). Have `matchRoute` return `{ route, match }` and reuse the match.
 - **404 vs 405.** If the path matches but the method doesn't, return `405 Method Not Allowed` with an `Allow` header.
 - **`HEAD` / `OPTIONS` unsupported.** `HEAD` should usually fall back to `GET` without a body. `OPTIONS` matters once you add CORS.
-- **Unsafe method cast:** `(req.method ?? "GET") as Route["method"]`. A `TRACE` request is typed as a valid method. Validate it against a `const METHODS = [...] as const` set.
+- **Unsafe method cast:** `(req.method ?? "GET") as Route["method"]`. A `TRACE` request is typed as valid. Validate it against `const METHODS = [...] as const`.
 - **Trailing slash:** `/hello/` returns 404. Decide on a policy (strict, redirect, or tolerant).
-- **`notFound` duplicates `sendResponse`.** Use `sendResponse(res, 404, …)`.
-- **Inconsistent error shape:** 404 returns `{ message }`, 500 returns `{ error }`, 401 returns `{ message }`. Pick one envelope, e.g. `{ error: { code: "NOT_FOUND", message: "..." } }`.
-- **Query params lose repeated keys** [verified]. `?a=1&a=2` gives `{ a: "2" }`. Either expose the `URLSearchParams` directly or build `Record<string, string | string[]>`.
-- The `catch (error)` in `handle` swallows the error without logging it, which makes debugging hard. Log it, and check `res.headersSent` before writing a 500 (otherwise `ERR_HTTP_HEADERS_SENT`).
-- No duplicate-route detection on registration (the `TODO` on line 26 is the right place for it).
+- **Repeated query keys are lost** [verified]. `?a=1&a=2` gives `{ a: "2" }`. Expose `URLSearchParams` directly or build `Record<string, string | string[]>`.
+- **Inconsistent error shape:** 404 and 401 return `{ message }`, while 500 returns `{ error }`. Pick one envelope, e.g. `{ error: { code: "NOT_FOUND", message: "..." } }`.
+- `import type { ServerResponse } from "http"` should be `"node:http"`, as in the other files.
+- No duplicate-route detection at registration (the `TODO` on line 24 is the right place for it).
 
 ### Types (`lib/types.ts`)
 
-- `params?` and `searchParams?` are optional, so every handler has to write `req.params?.name ?? "user"`. Because the router always sets them, make them non-optional on the request the handler receives. One option: a distinct `RoutedRequest` type, or a `ctx` object (`{ req, res, params, query, user }`, as Koa and Hono do).
-- `Middleware` and `Handler` are near-duplicates. `Handler` can be `Middleware` with `next` unused, or the router can type the last element explicitly.
-- Mutating `IncomingMessage` is how Express does it, and it's fine. Just keep it to one documented place.
+- `params?` and `searchParams?` are optional, so handlers write `req.params?.name ?? "user"`. Because the router always sets them, make them non-optional for handlers. One option is a `RoutedRequest` type; another is a `ctx` object (`{ req, res, params, query, user }`, as Koa and Hono do).
+- `Middleware` and `Handler` are near-duplicates. Since `compose` already accepts a `Handler` as a `Middleware`, consider keeping only `Middleware`.
 
 ### `sendResponse` (`lib/utils/sendResponse.ts`)
 
-- `content: Object` → `content: unknown`. The `Object` wrapper type is discouraged (ESLint `ban-types`).
-- Guard `if (res.headersSent) return;`, or log it.
-- Consider `res.end(body)` with an explicit `Content-Length: Buffer.byteLength(body)`.
-- Add `charset=utf-8` to `Content-Type`.
-
-### Logger (`middlewares/loggerMiddleware.ts`)
-
-It only logs the start and the URL. Once M1 is fixed, log on completion:
-
-```ts
-export const loggerMiddleware: Middleware = async (req, res, next) => {
-  const start = performance.now();
-  res.on("finish", () => {
-    const ms = (performance.now() - start).toFixed(1);
-    console.log(`${req.method} ${req.url} ${res.statusCode} ${ms}ms`);
-  });
-  await next();
-};
-```
-
-`res.on("finish")` works even with the current broken `compose`. It's the more robust pattern either way.
+- `content: Object` → `content: unknown`. The `Object` wrapper type is discouraged.
+- Guard `if (res.headersSent) return;`.
+- Use `Content-Type: application/json; charset=utf-8`, and optionally set `Content-Length: Buffer.byteLength(body)`.
 
 ### App / config (`app.ts`)
 
-- `PORT` and `HOSTNAME` are hard-coded. Read them from `process.env` (`process.env.PORT ?? 3000`). Node 26 has `--env-file=.env` built in.
-- No `server.on("error")` handler. `EADDRINUSE` crashes with a raw stack trace. Handle it with a clear message.
+- `sendResponse` is imported but unused. That's TypeScript warning 6133; it becomes used once you add the `.catch` from M1.
+- `PORT` and `HOSTNAME` are hard-coded. Read them from `process.env`; Node 26 supports `--env-file=.env`.
+- No `server.on("error")`. `EADDRINUSE` crashes with a raw stack trace.
 - Graceful shutdown: on `SIGINT`/`SIGTERM`, call `server.close()` and let in-flight requests finish.
-- Consider process-level `unhandledRejection`/`uncaughtException` logging as a last resort (log and exit, don't swallow).
 
 ### Repo hygiene
 
-- **`app.js` is a stale artifact** of an older Hello World `tsc` build. It doesn't match `app.ts` and is confusing. Delete it. `tsconfig` already emits to `dist/`, so add `dist/` to `.gitignore`.
+- **`app.js` is a stale Hello World build artifact** that doesn't match `app.ts`. Delete it.
 - Root `package.json` has `"main": "node-js/app.js"`, a path that doesn't exist.
 - `PATH_PARAM_PATTERN` has an unnecessary escape: `[a-zA-Z0-9\_]` → `[a-zA-Z0-9_]` (or `\w`).
-- `authMiddleware.ts:11` has a redundant cast: `req.headers["authorization"] as string`. Node already types `req.headers.authorization` as `string | undefined`, and the cast hides the `undefined`.
-- **No tests.** Node has a built-in runner, so you don't need Jest. Start with `node --test`: unit-test `compose` (ordering, errors, double `next`) and the router (params, 404/405, decoding), then add integration tests that start the server on port `0` and use `fetch`. The M1 and M2 bugs would each have been caught by a 5-line test.
-
----
-
-## Suggested target structure
-
-```
-phase-1-node-js/
-├── app.ts                    # bootstrap: config, createServer, shutdown
-├── config.ts                 # env parsing
-├── lib/
-│   ├── router.ts             # Router class (per-route middleware, 404/405)
-│   ├── compose.ts
-│   ├── http.ts               # sendResponse, sendError, HttpError class
-│   └── types.ts
-├── middlewares/
-│   ├── errorHandler.ts       # global, first in chain
-│   ├── logger.ts             # global
-│   ├── authenticate.ts       # global, optional: sets req.user
-│   └── requireAuth.ts        # per-route guard
-├── routes/
-│   └── index.ts              # router.get("/protected", requireAuth, handler)
-├── handlers/
-│   └── hello.ts
-└── test/
-    ├── compose.test.ts
-    ├── router.test.ts
-    └── app.test.ts
-```
-
-An `HttpError` class (`throw new HttpError(404, "User not found")`) together with the global error middleware lets handlers `throw` instead of hand-writing error responses.
+- Handlers are missing trailing semicolons (`handlers/hello.ts`, `handlers/protected.ts`), and `handlers/root.ts` has commented-out debug code. Add Prettier to fix the formatting automatically.
+- **No tests.** Use `node --test`, which is built in. Each bug in this audit is a 5–10 line regression test:
+  - `compose`: ordering, error propagation, double `next()`.
+  - Router: params, decoding, 404/405.
+  - Integration: start the server on port `0`, then `fetch` `/./protected` (expect 401), send a bad `Host` (expect 400/500, server still alive), and send `Bearerxyz` (expect 401).
 
 ---
 
@@ -320,15 +270,15 @@ An `HttpError` class (`throw new HttpError(404, "User not found")`) together wit
 
 | # | Severity | Item | Effort |
 |---|---|---|---|
-| 1 | 🔴 Major | Fix `compose` (`return dispatch(i + 1)`, async), return the promise from `appHandler`, add `.catch` in `createServer` | S |
-| 2 | 🔴 Major | Move auth to per-route middleware on the normalized/matched route; remove `PROTECTED_ROUTES` | M |
-| 3 | 🔴 Major | Make token parsing strict (`scheme === "Bearer" && token`), stub `verifyToken`, set `req.user`, add `WWW-Authenticate` | S |
-| 4 | 🟠 | Global error middleware + `HttpError` + one consistent error envelope | S |
-| 5 | 🟠 | Tests with `node --test` for compose, router, and the auth bypass regression | M |
-| 6 | 🟡 | Decode params, escape regex literals, 405 + `Allow`, single regex match | S |
-| 7 | 🟡 | Logger on `finish` with method/status/duration | XS |
+| 1 | 🔴 Major | M1: `.catch` in `app.ts`; stop using the `Host` header in `new URL` | XS |
+| 2 | 🔴 Major | M2 + M3: drop the `PROTECTED_ROUTES` check, strict `Bearer <token>` parsing, `WWW-Authenticate` | XS |
+| 3 | 🔴 Major | M4: generic 5xx body, log the full error, `HttpError` for expected errors | S |
+| 4 | 🟠 | A1: routing as the last global middleware; single error handler; 404s logged | S |
+| 5 | 🟠 | Tests with `node --test`, including regressions for M1, M2, M3 | M |
+| 6 | 🟡 | Logger status-code bug | XS |
+| 7 | 🟡 | Decode params, escape regex literals, 405 + `Allow`, single regex match | S |
 | 8 | 🟡 | Env config, `server.on("error")`, graceful shutdown | S |
-| 9 | 🟡 | Delete `app.js`, fix `package.json` `main`, split `router.ts` into class/routes/handlers | XS |
+| 9 | 🟡 | Delete `app.js`, fix `package.json` `main`, remove the unused import | XS |
 | 10 | 🟡 | Types: non-optional `params`/`query`, `unknown` instead of `Object`, validated method | XS |
 
-**Next learning step after these:** request body parsing (stream `req`, enforce a size limit, `JSON.parse` with a 400 on failure, check `Content-Type`), then input validation. That's where most real-world backend bugs live.
+**Next learning step after these:** request body parsing (stream `req`, enforce a size limit, `JSON.parse` with a 400 on failure, check `Content-Type`), then input validation.
