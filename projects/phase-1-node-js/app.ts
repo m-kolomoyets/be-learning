@@ -1,8 +1,11 @@
 import { createServer } from "node:http";
-import { sendResponse } from "./lib/utils/sendResponse.ts";
+import dotenv from 'dotenv';
 import router from "./routes/index.ts";
+import { DEFAULT_PORT } from "./lib/constants.ts";
 
-const PORT = 3000;
+dotenv.config();
+
+const PORT = parseInt(process.env.PORT || DEFAULT_PORT + '');
 const HOSTNAME = "127.0.0.1";
 
 const server = createServer((req, res) => {

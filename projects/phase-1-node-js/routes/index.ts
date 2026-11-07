@@ -1,3 +1,4 @@
+import { rootDbHandler } from "../handlers/db.ts";
 import {
   helloHandler,
   helloWithNameHandler,
@@ -21,5 +22,7 @@ router.get("/hello/:name", helloWithNameHandler);
 router.post("/hello", postHelloHandler);
 
 router.get("/protected", authMiddleware, protectedHandler);
+
+router.get("/db", rootDbHandler);
 
 export default router;
