@@ -1,8 +1,13 @@
 import type { ServerResponse } from "http";
-import { PATH_PARAM_PATTERN, CAPTURE_GROUP_REGEX } from "./constants.ts";
+import {
+  PATH_PARAM_PATTERN,
+  CAPTURE_GROUP_REGEX,
+  CONTENT_TYPE_JSON,
+} from "./constants.ts";
 import type { Handler, Route, Request, Middleware } from "./types.ts";
 import { sendResponse } from "./utils/sendResponse.ts";
 import { compose } from "./utils/compose.ts";
+import { parseJsonBody } from "./utils/parseJSONBody.ts";
 
 export class Router {
   private routes: Route[] = [];
@@ -84,6 +89,21 @@ export class Router {
     return Object.fromEntries(url.searchParams.entries());
   }
 
+  private async tryCatchWithStatus(
+    res: ServerResponse,
+    callback: () => Promise<void> | void,
+    errorConfig: { status: number; message: string },
+  ) {
+    try {
+      await callback();
+    } catch (err) {
+      const error = err as Error;
+      sendResponse(res, errorConfig.status, {
+        error: `${errorConfig.message}: ${error.message}`,
+      });
+    }
+  }
+
   use(...middlewares: Middleware[]) {
     this.middlewares.push(...middlewares);
   }
@@ -127,19 +147,35 @@ export class Router {
     const searchParams = this.parseSearchParams(url);
     req.searchParams = searchParams;
 
-    try {
-      const composedHandler = compose([
-        ...this.middlewares,
-        matchedRoute.handler,
-      ]);
+    if (req.headers["content-type"] === CONTENT_TYPE_JSON) {
+      await this.tryCatchWithStatus(
+        res,
+        async () => {
+          const body = await parseJsonBody(req);
 
-      await composedHandler(req, res);
-    } catch (err) {
-      const error = err as Error;
-
-      sendResponse(res, 500, {
-        error: `Internal Server Error: ${error.message}`,
-      });
+          req.body = body;
+        },
+        {
+          status: 400,
+          message: "Invalid Request JSON",
+        },
+      );
     }
+
+    await this.tryCatchWithStatus(
+      res,
+      async () => {
+        const composedHandler = compose([
+          ...this.middlewares,
+          matchedRoute.handler,
+        ]);
+
+        await composedHandler(req, res);
+      },
+      {
+        status: 500,
+        message: "Internal Server Error",
+      },
+    );
   }
 }
