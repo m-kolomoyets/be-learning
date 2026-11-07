@@ -7,7 +7,7 @@ import {
 import type { Handler, Route, Request, Middleware } from "./types.ts";
 import { sendResponse } from "./utils/sendResponse.ts";
 import { compose } from "./utils/compose.ts";
-import { parseJsonBody } from "./utils/parseJSONBody.ts";
+import { parseJsonBody } from "./utils/parseJsonBody.ts";
 
 export class Router {
   private routes: Route[] = [];

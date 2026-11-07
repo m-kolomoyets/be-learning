@@ -10,7 +10,9 @@ export const errorMiddleware: Middleware = async (req, res, next) => {
     console.error(`Error throws during route call: `, error.message);
 
     if (!res.headersSent) {
-      sendResponse(res, 500, { error: `Internal Server Error: ${error.message}` });
+      sendResponse(res, 500, {
+        error: `Internal Server Error: ${error.message}`,
+      });
     } else {
       res.destroy();
     }

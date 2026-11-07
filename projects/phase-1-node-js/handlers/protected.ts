@@ -7,4 +7,4 @@ export const protectedHandler: Handler = (req, res) => {
       "This is a /protected route. If you see this, you have the AuthToken in headers",
     searchParams: req.searchParams ?? {},
   });
-}
+};
