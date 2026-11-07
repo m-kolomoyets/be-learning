@@ -1,8 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+export type JsonObject = { [key: string]: JsonValue };
+
 export type Request = IncomingMessage & {
   params?: Record<string, string>;
   searchParams?: Record<string, string>;
+  body?: JsonObject;
 };
 
 export type Middleware = (
