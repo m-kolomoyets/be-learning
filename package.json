@@ -9,6 +9,7 @@
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "server:node": "node --watch projects/phase-1-node-js/app.ts",
+    "practice:fs": "node practice/fs.ts",
     "sql:start": "scripts/start-sql-db.sh"
   },
   "keywords": [],

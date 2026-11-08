@@ -1,0 +1,2 @@
+File was created with fs.writeFileSync
+Appended content using fs.appendFileSync
