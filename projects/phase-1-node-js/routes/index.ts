@@ -1,5 +1,5 @@
 import { rootDbHandler } from "../handlers/db.ts";
-import { downloadFileHandler } from "../handlers/files.ts";
+import { downloadFileHandler, uploadFileHandler } from "../handlers/files.ts";
 import {
   helloHandler,
   helloWithNameHandler,
@@ -27,5 +27,6 @@ router.get("/protected", authMiddleware, protectedHandler);
 router.get("/db", rootDbHandler);
 
 router.get("/file-download", downloadFileHandler);
+router.post('/file-upload', uploadFileHandler)
 
 export default router;
