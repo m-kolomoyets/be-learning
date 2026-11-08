@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer } from 'node:http';
 const PORT = 3000;
 const HOSTNAME = '127.0.0.1';
 const server = createServer((req, res) => {

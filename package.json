@@ -1,36 +1,40 @@
 {
-  "name": "be-learning",
-  "version": "1.0.0",
-  "description": "",
-  "main": "node-js/app.js",
-  "scripts": {
-    "ts:watch": "tsc --watch",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "server:node": "node --watch projects/phase-1-node-js/app.ts",
-    "practice:fs": "node practice/fs.ts",
-    "sql:start": "scripts/start-sql-db.sh"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "^11.9.0",
-      "onFail": "download"
+    "name": "be-learning",
+    "version": "1.0.0",
+    "description": "",
+    "main": "node-js/app.js",
+    "scripts": {
+        "ts:watch": "tsc --watch",
+        "typecheck": "tsc --noEmit",
+        "build": "tsc",
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "server:node": "node --watch projects/phase-1-node-js/app.ts",
+        "practice:fs": "node practice/fs.ts",
+        "practice:buffers": "node practice/buffers.ts",
+        "sql:start": "scripts/start-sql-db.sh",
+        "fix:fmt": "oxfmt",
+        "lint:fmt": "oxfmt --check"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "devEngines": {
+        "packageManager": {
+            "name": "pnpm",
+            "version": "^11.9.0",
+            "onFail": "download"
+        }
+    },
+    "type": "module",
+    "devDependencies": {
+        "@types/node": "^26.6.5",
+        "@types/pg": "^8.23.1",
+        "tsx": "^4.23.15",
+        "typescript": "^7.0.2"
+    },
+    "dependencies": {
+        "dotenv": "^18.0.9",
+        "oxfmt": "^0.77.0",
+        "pg": "^8.23.1"
     }
-  },
-  "type": "module",
-  "devDependencies": {
-    "@types/node": "^26.6.5",
-    "@types/pg": "^8.23.1",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
-  },
-  "dependencies": {
-    "dotenv": "^18.0.9",
-    "pg": "^8.23.1"
-  }
 }

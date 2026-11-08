@@ -41,7 +41,7 @@ Open major issues:
 `lib/router.ts:51-55`, `lib/router.ts:115-122`, `app.ts:8-10`
 
 ```ts
-const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
 ```
 
 `new URL()` throws `ERR_INVALID_URL` on a bad `Host` header. For example:
@@ -59,20 +59,20 @@ This is a denial-of-service bug: any client can take the server down with one re
 ```ts
 // 1. app.ts — last-resort safety net; never let a request kill the process
 const server = createServer((req, res) => {
-  router.handle(req, res).catch((error) => {
-    console.error("Unhandled request error", error);
-    if (!res.headersSent) sendResponse(res, 500, { error: "Internal Server Error" });
-    else res.destroy();
-  });
+    router.handle(req, res).catch((error) => {
+        console.error('Unhandled request error', error);
+        if (!res.headersSent) sendResponse(res, 500, { error: 'Internal Server Error' });
+        else res.destroy();
+    });
 });
 ```
 
 ```ts
 // 2. lib/router.ts — don't trust the Host header; it isn't needed for path parsing
-const url = new URL(req.url ?? "/", "http://localhost");
+const url = new URL(req.url ?? '/', 'http://localhost');
 ```
 
-Better still, see A1 below: run everything, including URL parsing and route matching, *inside* the composed chain so `errorMiddleware` covers it.
+Better still, see A1 below: run everything, including URL parsing and route matching, _inside_ the composed chain so `errorMiddleware` covers it.
 
 ---
 
@@ -90,19 +90,14 @@ Now that auth is attached per route, the prefix check is not just redundant, it'
 
 ```ts
 export const authMiddleware: Middleware = async (req, res, next) => {
-  const [scheme, token] = req.headers.authorization?.split(" ") ?? [];
+    const [scheme, token] = req.headers.authorization?.split(' ') ?? [];
 
-  if (scheme !== "Bearer" || !token) {
-    sendResponse(
-      res,
-      401,
-      { message: "Unauthorized: Missing token" },
-      { "WWW-Authenticate": "Bearer" },
-    );
-    return;
-  }
+    if (scheme !== 'Bearer' || !token) {
+        sendResponse(res, 401, { message: 'Unauthorized: Missing token' }, { 'WWW-Authenticate': 'Bearer' });
+        return;
+    }
 
-  await next();
+    await next();
 };
 ```
 
@@ -120,11 +115,12 @@ This snippet also fixes M3.
 
 ```ts
 const user = await verifyToken(token); // stub now, JWT/session later
-if (!user) return unauthorized(res);   // "invalid" vs "missing" token
-req.user = user;                       // downstream handlers know *who*
+if (!user) return unauthorized(res); // "invalid" vs "missing" token
+req.user = user; // downstream handlers know *who*
 ```
 
 Also:
+
 - Send `WWW-Authenticate: Bearer` with 401 responses (RFC 6750).
 - Remove the `as string` cast on `req.headers["authorization"]`. Node already types it as `string | undefined`, and the cast hides the `undefined`.
 
@@ -142,17 +138,21 @@ sendResponse(res, 500, { error: `Internal Server Error: ${error.message}` });
 
 - Log the full error server-side: `console.error(err)`, which includes the stack (currently only `.message` is logged).
 - Send a generic body to the client: `{ error: "Internal Server Error" }`.
-- For *expected* errors, use an `HttpError` class whose message is meant to be public:
+- For _expected_ errors, use an `HttpError` class whose message is meant to be public:
 
 ```ts
 export class HttpError extends Error {
-  constructor(public status: number, message: string, public expose = status < 500) {
-    super(message);
-  }
+    constructor(
+        public status: number,
+        message: string,
+        public expose = status < 500
+    ) {
+        super(message);
+    }
 }
 // errorMiddleware:
 const status = err instanceof HttpError ? err.status : 500;
-const message = err instanceof HttpError && err.expose ? err.message : "Internal Server Error";
+const message = err instanceof HttpError && err.expose ? err.message : 'Internal Server Error';
 ```
 
 > `erasableSyntaxOnly` forbids parameter properties (`public status` in the constructor), so declare the fields explicitly instead.
@@ -174,7 +174,7 @@ Also, `err as Error` is unsafe: anything can be thrown (`throw "x"`). Use `err i
 - Global middleware like CORS preflight, request ID, or rate limiting can't run on unmatched paths.
 - Two layers both catch errors: `errorMiddleware` and the `try/catch` in `handle()`. The router's catch also lacks a `headersSent` check, so it can throw `ERR_HTTP_HEADERS_SENT`.
 
-**Recommended shape:** make routing the *last middleware* of the global chain.
+**Recommended shape:** make routing the _last middleware_ of the global chain.
 
 ```ts
 async handle(req: Request, res: ServerResponse) {
@@ -260,16 +260,16 @@ This supports routes that are public but personalized when the user is logged in
 - `PATH_PARAM_PATTERN` has an unnecessary escape: `[a-zA-Z0-9\_]` → `[a-zA-Z0-9_]` (or `\w`).
 - Handlers are missing trailing semicolons (`handlers/hello.ts`, `handlers/protected.ts`), and `handlers/root.ts` has commented-out debug code. Add Prettier to fix the formatting automatically.
 - **No tests.** Use `node --test`, which is built in. Each bug in this audit is a 5–10 line regression test:
-  - `compose`: ordering, error propagation, double `next()`.
-  - Router: params, decoding, 404/405.
-  - Integration: start the server on port `0`, then `fetch` `/./protected` (expect 401), send a bad `Host` (expect 400/500, server still alive), and send `Bearerxyz` (expect 401).
+    - `compose`: ordering, error propagation, double `next()`.
+    - Router: params, decoding, 404/405.
+    - Integration: start the server on port `0`, then `fetch` `/./protected` (expect 401), send a bad `Host` (expect 400/500, server still alive), and send `Bearerxyz` (expect 401).
 
 ---
 
 ## Priority checklist
 
 | # | Severity | Item | Effort |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | 🔴 Major | M1: `.catch` in `app.ts`; stop using the `Host` header in `new URL` | XS |
 | 2 | 🔴 Major | M2 + M3: drop the `PROTECTED_ROUTES` check, strict `Bearer <token>` parsing, `WWW-Authenticate` | XS |
 | 3 | 🔴 Major | M4: generic 5xx body, log the full error, `HttpError` for expected errors | S |
