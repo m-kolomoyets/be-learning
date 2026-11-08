@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_DB_PORT = 5432;
 
@@ -11,3 +13,5 @@ export const PROTECTED_ROUTES = ["/protected"];
 
 export const KILOBYTE = 1024;
 export const MEGABYTE = KILOBYTE * KILOBYTE;
+
+export const ASSETS_ROOT_PATH = path.join(process.cwd(), 'projects', 'phase-1-node-js', "assets");
