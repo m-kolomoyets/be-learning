@@ -1,5 +1,6 @@
 import { rootDbHandler } from '../handlers/db.ts';
 import { downloadFileHandler, uploadFileHandler } from '../handlers/files.ts';
+import { livenessHandler, readinessHandler } from '../handlers/health.ts';
 import { helloHandler, helloWithNameHandler, postHelloHandler } from '../handlers/hello.ts';
 import { protectedHandler } from '../handlers/protected.ts';
 import { rootHandler } from '../handlers/root.ts';
@@ -24,5 +25,8 @@ router.get('/db', rootDbHandler);
 
 router.get('/file-download', downloadFileHandler);
 router.post('/file-upload', uploadFileHandler);
+
+router.get('/health', livenessHandler);
+router.get('/health/ready', readinessHandler);
 
 export default router;
