@@ -1,4 +1,5 @@
 import { rootDbHandler } from '../handlers/db.ts';
+import { externalUsersHandler } from '../handlers/external-api.ts';
 import { downloadFileHandler, uploadFileHandler } from '../handlers/files.ts';
 import { livenessHandler, readinessHandler } from '../handlers/health.ts';
 import { helloHandler, helloWithNameHandler, postHelloHandler } from '../handlers/hello.ts';
@@ -8,6 +9,7 @@ import { Router } from '../lib/router.ts';
 import { authMiddleware } from '../middlewares/authMiddleware.ts';
 import { errorMiddleware } from '../middlewares/errorMiddleware.ts';
 import { loggerMiddleware } from '../middlewares/loggerMiddleware.ts';
+import { timeoutMiddleware } from '../middlewares/timeoutMiddleware.ts';
 
 const router = new Router();
 
@@ -28,5 +30,7 @@ router.post('/file-upload', uploadFileHandler);
 
 router.get('/health', livenessHandler);
 router.get('/health/ready', readinessHandler);
+
+router.get('/external/users', timeoutMiddleware, externalUsersHandler);
 
 export default router;

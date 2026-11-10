@@ -3,6 +3,10 @@ import path from 'node:path';
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_DB_PORT = 5432;
 
+export const ONE_SECOND = 1_000;
+export const DB_CHECK_TIMEOUT_MS = 1 * ONE_SECOND;
+export const ROUTE_TIMEOUT_MS = 5 * ONE_SECOND;
+
 export const CONTENT_TYPE_JSON = 'application/json';
 export const DEFAULT_JSON_HEADERS = { 'Content-Type': CONTENT_TYPE_JSON };
 
@@ -15,5 +19,3 @@ export const KILOBYTE = 1024;
 export const MEGABYTE = KILOBYTE * KILOBYTE;
 
 export const ASSETS_ROOT_PATH = path.join(process.cwd(), 'projects', 'phase-1-node-js', 'assets');
-
-export const DB_CHECK_TIMEOUT_MS = 1000;

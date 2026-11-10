@@ -90,6 +90,10 @@ export class Router {
         try {
             await callback();
         } catch (err) {
+            if (res.headersSent) {
+                return;
+            }
+
             const error = err as Error;
             sendResponse(res, errorConfig.status, {
                 error: `${errorConfig.message}: ${error.message}`,

@@ -8,6 +8,7 @@ export type Request = IncomingMessage & {
     params?: Record<string, string>;
     searchParams?: Record<string, string>;
     body?: JsonObject;
+    abortSignal?: AbortSignal;
 };
 
 export type Middleware = (req: Request, res: ServerResponse, next: () => Promise<void> | void) => Promise<void> | void;
