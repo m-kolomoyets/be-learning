@@ -12,6 +12,7 @@
         "practice:fs": "node practice/fs.ts",
         "practice:buffers": "node practice/buffers.ts",
         "practice:url": "node practice/url.ts",
+        "practice:event-emitter": "node practice/event-emitter.ts",
         "sql:start": "scripts/start-sql-db.sh",
         "fix:fmt": "oxfmt",
         "lint:fmt": "oxfmt --check"
