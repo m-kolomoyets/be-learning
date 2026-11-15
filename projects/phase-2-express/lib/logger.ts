@@ -1,7 +1,7 @@
 import pino from 'pino';
-import { env } from '../config/env.ts';
+import { env } from './env.ts';
 
 export const logger = pino({
-    transport: { target: 'pino-pretty' },
+    ...(env.NODE_ENV === 'development' ? { transport: { target: 'pino-pretty' } } : {}),
     level: env.LOG_LEVEL,
 });
